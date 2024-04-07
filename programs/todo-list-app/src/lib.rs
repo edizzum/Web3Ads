@@ -1,110 +1,73 @@
-use anchor_lang::prelude::*;
+use anchor_lang::prelude::;
+use anchor_spl::token::{self, Mint, TokenAccount, Transfer};
 
-declare_id!("6hk9P8FtQZC8kb4jLmzYWw5TD6bkqNb5gZWeSrkAnWng");
+declare_id!("Fg6PaFzntrJZ1Ym1FzKSAkJS2LpkuSqS1fyyKN1LL5y");
 
 #[program]
-pub mod todo_list_app {
-    use super::*;
+pub mod web3ads {
+    use super::;
 
-    pub fn adding_task(ctx: Context<AddingTask>, text: String) -> Result<()> {
-        let task = &mut ctx.accounts.task;
-        let author = &ctx.accounts.author; // The `author` account
-        let clock = Clock::get().unwrap(); // Getting the current timestamp
-        
-        if text.chars().count() > 400 {
-            return Err(ErrorCode::TextTooLong.into());
-        }
-        
-        task.author = *author.key;
-        task.is_done = false;
-        task.created_at = clock.unix_timestamp;
-        task.updated_at = clock.unix_timestamp;
-        task.text = text;
+    pub fn mint_nft(ctx: Context<MintNft>, url: String) -> Result<()> {
+        let nft_info = &mut ctx.accounts.nft_info;
+        nft_info.url = url;
+        nft_info.owner = *ctx.accounts.minter.key;
+        nft_info.claimable_tokens = 0;
         Ok(())
-
     }
 
-    pub fn updating_task(ctx: Context<UpdatingTask>, is_done: bool) -> Result<()> {
-        let task = &mut ctx.accounts.task;
-        let author = &ctx.accounts.author; // The `author` account
-        let clock = Clock::get().unwrap(); // Getting the current timestamp
-        
-        task.author = *author.key;
-        task.is_done = is_done;
-        task.updated_at = clock.unix_timestamp;
+    pub fn increase_claimable_tokens(ctx: Context<AccessNft>) -> Result<()> {
+        let nft_info = &mut ctx.accounts.nft_info;
+        nft_info.claimable_tokens += 5; 
         Ok(())
-       
     }
 
-    pub fn deleting_task(ctx: Context<DeletingTask>) -> Result<()> {
-        let task = &mut ctx.accounts.task;
-        let author = &ctx.accounts.author; // The `author` account
-        let clock = Clock::get().unwrap(); // Getting the current timestamp
-        
-        task.author = *author.key;
-        task.is_done = true;
-        task.updated_at = clock.unix_timestamp;
+    pub fn claim_tokens(ctx: Context<ClaimTokens>) -> Result<()> {
+        let nft_info = &mut ctx.accounts.nft_info;
+        let amount = nft_info.claimable_tokens;
+
+        // Token transfer 
+        let ix = Transfer {
+            from: ctx.accounts.from.to_account_info(),
+            to: ctx.accounts.to.to_account_info(),
+            authority: ctx.accounts.owner.to_account_info(),
+        };
+        token::transfer(ctx.accounts.into_transfer_context(), amount)?;
+
+        // updating claim amount
+        nft_info.claimable_tokens = 0;
         Ok(())
-       
     }
-
-
-
-
 }
 
 #[derive(Accounts)]
-pub struct AddingTask<'info> {
-    #[account(init, payer = author, space = Task::LEN)]
-    pub task: Account<'info, Task>,
+pub struct MintNft<'info> {
+    #[account(init, payer = minter, space = 8 + 256 + 32 + 8)]
+    pub nft_info: Account<'info, NftInfo>,
     #[account(mut)]
-    pub author: Signer<'info>,
+    pub minter: Signer<'info>,
     pub system_program: Program<'info, System>,
 }
 
-
 #[derive(Accounts)]
-pub struct UpdatingTask<'info> {
-    #[account(mut, has_one = author)]
-    pub task: Account<'info, Task>,
-    pub author: Signer<'info>,
+pub struct AccessNft<'info> {
+    #[account(mut)]
+    pub nft_info: Account<'info, NftInfo>,
 }
 
 #[derive(Accounts)]
-pub struct DeletingTask<'info> {
-    #[account(mut, has_one = author)]
-    pub task: Account<'info, Task>,
-    pub author: Signer<'info>,
+pub struct ClaimTokens<'info> {
+    #[account(mut)]
+    pub nft_info: Account<'info, NftInfo>,
+    #[account(mut)]
+    pub from: Account<'info, TokenAccount>,
+    #[account(mut)]
+    pub to: Account<'info, TokenAccount>,
+    pub owner: Signer<'info>,
 }
-
 
 #[account]
-pub struct Task {
-    pub author: Pubkey,  // The account that owns the task
-    pub is_done: bool,   // Whether the task is done or not
-    pub text: String,    // The text of the task
-    pub created_at: i64, // The timestamp when the task was created
-    pub updated_at: i64, // The timestamp when the task was last updated
-}
-
-const DISCRIMINATOR: usize = 8;
-const PUBLIC_KEY_LENGTH: usize = 32;
-const BOOL_LENGTH: usize = 1;
-const TEXT_LENGTH: usize = 4 + 400 * 4; // 400 chars
-const TIMESTAMP_LENGTH: usize = 8;
-
-impl Task {
-    const LEN: usize = DISCRIMINATOR + // discriminator
-        PUBLIC_KEY_LENGTH + // author
-        BOOL_LENGTH + // is_done
-        TEXT_LENGTH +  // text
-        TIMESTAMP_LENGTH + // created_at
-        TIMESTAMP_LENGTH; // updated_at
-}
-
-
-#[error_code]
-pub enum ErrorCode {
-    #[msg("The text is too long")]
-    TextTooLong,
+pub struct NftInfo {
+    pub url: String,
+    pub owner: Pubkey,
+    pub claimable_tokens: u64,
 }
